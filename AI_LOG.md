@@ -619,3 +619,79 @@ Execução do jar com `--spring.main.web-application-type=none`:
 ### Validação
 
 - `./mvnw test`: 21 testes, 0 falhas.
+
+---
+
+## Interação 15 — Swagger (OpenAPI)
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> implementar swagger para poder facilitar o teste
+
+### Skills e ferramentas
+
+- `java-backend-skills:spring-web` (carregada antes): documentar o contrato HTTP real, sem alterar o endpoint.
+- Consulta ao Maven Central: `springdoc-openapi-starter-webmvc-ui` 3.1.1 é a versão mais recente e usa Spring Boot 4.1.0 como base; a versão não é gerenciada pelo Boot.
+
+### O que a IA fez
+
+- Adicionou `springdoc-openapi-starter-webmvc-ui` 3.1.1 ao `pom.xml`, com versão explícita.
+- `@OpenAPIDefinition` em `RazziesApplication` (título, versão e descrição) e `@Tag`/`@Operation` no `ProducerIntervalController`.
+- Criou `OpenApiDocsTests`: `/v3/api-docs` documenta `GET /producers/award-intervals` com resposta 200, e `/swagger-ui.html` redireciona para `/swagger-ui/index.html`.
+
+### Validação
+
+- Com o jar rodando: `/v3/api-docs` traz o título `Razzies API`, o caminho `/producers/award-intervals` e os schemas `ProducerIntervals`/`ProducerInterval` com os campos do enunciado; `/swagger-ui.html` responde 302 para `/swagger-ui/index.html` (200); o endpoint continua devolvendo Joel Silver 1 e Matthew Vaughn 13.
+- `./mvnw clean test`: 23 testes, 0 falhas.
+
+### Problema de ambiente encontrado
+
+- O Eclipse/STS aberto no projeto compila automaticamente em `razzies/target/classes`. Como a IDE ainda não tinha a dependência nova, ela gravou classes com `Unresolved compilation problem` por cima da saída do Maven, e o jar falhou ao subir.
+- A validação foi refeita numa cópia do projeto fora do repositório. Na IDE é preciso rodar *Maven > Update Project*.
+
+### Ajuste: `spring.jpa.open-in-view=false`
+
+> desabilitar o spring.jpa.open-in-view
+
+- Adicionado `spring.jpa.open-in-view=false` em `application.properties`. A consulta roda dentro de `ProducerIntervalService` (`@Transactional(readOnly = true)`) e devolve apenas records, então não há carregamento lazy durante a serialização.
+- `./mvnw clean test` na cópia isolada: 23 testes, 0 falhas; o aviso de `open-in-view` não aparece mais no log.
+
+---
+
+## Interação 16 — README
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> O endpoint está OK, validei o JSON pelo curl, finalizar o README com as instruções para executar a aplicação. Documente também brevemente as decisões sobre normalização dos produtores, anos distintos e empates, além do uso de IA com referência ao AI_LOG.md, seja objetivo, sem explicações desnecessárias. antes de fazer o commit, me mostre o resultado.
+
+### O que a IA fez
+
+- Criou `README.md` na raiz: requisitos, execução (`spring-boot:run` e jar), CSV alternativo via `razzies.csv.path`, endpoint com exemplo de resposta, Swagger UI, testes de integração, regras de negócio e uso de IA com link para este arquivo.
+- Validou o comando documentado `./mvnw spring-boot:run -Dspring-boot.run.arguments=--razzies.csv.path=file:...` com o CSV de empates numa cópia do projeto: resposta com os quatro produtores empatados.
+
+### Incidente durante a validação
+
+- A primeira tentativa usou a porta 8080, que já estava ocupada por outra instância da aplicação (provavelmente iniciada pelo desenvolvedor na IDE). O `spring-boot:run` falhou com `Unable to start embedded Tomcat server`, e o `curl` respondeu com a outra instância.
+- O encerramento usou `pkill -f` por nome da classe principal, o que provavelmente encerrou também a instância do desenvolvedor. A porta 8080 ficou livre em seguida.
+- A validação foi refeita na porta 18081, encerrando só o grupo de processos iniciado pela IA. Daqui em diante, processos iniciados pela IA são encerrados apenas pelo próprio PID.
+
+---
+
+## Interação 17 — Publicação no GitHub
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> Vamos publicar o projeto neste repositório: https://github.com/marcoAssis/back-end-ai-test.git
+
+### O que a IA fez
+
+- Commitou o Swagger com `open-in-view=false` e, em seguida, o README.
+- Adicionou `.~lock.*#` ao `.gitignore` (arquivo de trava do LibreOffice com o README aberto).
+- Conferiu com `git ls-remote` que o repositório remoto existia e estava vazio e adicionou o remoto `origin`.
+- O push não pôde ser feito pela IA: o ambiente não tem credenciais do GitHub (sem `gh`, sem chave SSH cadastrada, HTTPS pedindo usuário). O desenvolvedor executou `git push -u origin main`.
