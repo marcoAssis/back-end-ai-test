@@ -423,3 +423,69 @@ Execução do jar com `--spring.main.web-application-type=none`:
 - `Producer.name` passa a guardar a grafia da primeira ocorrência com espaços nas pontas removidos e espaços internos colapsados, mantendo as maiúsculas originais (`Joel  Silver` vira `Joel Silver`).
 - `normalize()` reaproveita o mesmo colapso de espaços (`collapseSpaces`) e só acrescenta a conversão para minúsculas.
 - Revalidação: CSV original idêntico ao oráculo (359 produtores, 472 vínculos, 98 pares em `findProducerWins()`); cenário de nomes retorna `Joel Silver` em 1980, 1981 e 1982; cenário sem produtores mantém 3 avisos e nenhum produtor indevido; `./mvnw test` com sucesso.
+
+---
+
+## Interação 10 — Análise do cálculo dos intervalos
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> vamos para o cálculo dos intervalos usando a skill java-implement e java-design para analisar a melhor forma de implementar esse cálculo
+
+### Skills e ferramentas
+
+- `java-backend-skills:java-design`: dono único da regra de negócio, abstrações só quando removem complexidade de quem chama.
+- `java-backend-skills:java-implement` (carregada antes): reaproveitar a consulta `findProducerWins()` e APIs do JDK.
+
+### Proposta
+
+- Pacote `br.com.outsera.razzies.interval` com:
+  - `ProducerInterval(producer, interval, previousWin, followingWin)`: record com os campos exatos do JSON do enunciado.
+  - `ProducerIntervals(min, max)`: record da resposta, devolvido direto pelo controller (um DTO separado só repetiria os mesmos campos).
+  - `ProducerIntervalService` (`@Service`, `@Transactional(readOnly = true)`): único dono da regra; usa `findProducerWins()`.
+- Algoritmo, com o JDK apenas:
+  1. Agrupar as vitórias por produtor (`groupingBy` em `TreeMap`), sem depender da ordenação da consulta.
+  2. Ordenar os anos de cada produtor e gerar um intervalo para cada par de vitórias consecutivas (N vitórias geram N-1 intervalos; nunca primeira-com-última).
+  3. Calcular o menor e o maior intervalo e devolver **todos** os empatados em cada lista.
+  4. Saída determinística: ordem por produtor e ano da vitória anterior.
+- Casos de borda: sem nenhum produtor com 2 vitórias, `min` e `max` vazios; com um único intervalo no total, ele aparece nas duas listas; um mesmo produtor pode aparecer em `min` e `max`.
+- Alternativa descartada: classe calculadora separada do serviço; como só há testes de integração, ela só repassaria a mesma regra por outra camada.
+
+### Decisão em aberto
+
+- Duas vitórias do mesmo produtor no mesmo ano (filmes empatados ou linha duplicada): ignorar anos repetidos (recomendado) ou contar intervalo 0. Resolvida na interação 11.
+
+---
+
+## Interação 11 — Implementação do cálculo dos intervalos
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> use skill java-implement. pode ser ignorando anos repetidos, a vitórias no mesmo ano, vamos considerar apenas anos distintos, evitando intervalos zero
+
+### Decisão tomada
+
+- Apenas anos distintos por produtor entram no cálculo: vitórias no mesmo ano (filmes empatados ou linha duplicada) não geram intervalo 0. Encerra a decisão em aberto desde a interação 1.
+
+### O que a IA fez
+
+- Criou o pacote `br.com.outsera.razzies.interval` com `ProducerInterval`, `ProducerIntervals` e `ProducerIntervalService.findMinAndMaxIntervals()`, conforme a proposta da interação 10.
+- Anos de cada produtor agrupados em `TreeSet` (distintos e ordenados) dentro de um `TreeMap` por produtor; a saída sai ordenada por produtor e ano da vitória anterior sem ordenação extra.
+- Validou com teste temporário fora do repositório, chamando o serviço sobre CSVs de cenário:
+
+| Cenário | min | max |
+|---|---|---|
+| CSV original | Joel Silver 1 (1990→1991) | Matthew Vaughn 13 (2002→2015) |
+| Empates (A e B com 1; C e D com 10) | A 1, B 1 | C 10, D 10 |
+| Mesmo ano (X em 2000 duas vezes e 2003; linha de Y duplicada) | X 3 | X 3 |
+| Ninguém com 2 vitórias | `[]` | `[]` |
+| 3 vitórias (Z 2000, 2002, 2010; W 2001, 2002) | W 1 | Z 8 (não 10 entre primeira e última) |
+| Grafias `joel  silver` e ` Joel Silver ` | joel silver 1 | joel silver 1 |
+| Único intervalo no total | Solo 4 | Solo 4 |
+
+- `./mvnw test`: sucesso.
+- Endpoint REST e testes de integração automatizados ficam para as próximas etapas.
