@@ -9,10 +9,10 @@ import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.ApplicationArguments;
-import org.springframework.boot.ApplicationRunner;
+import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import br.com.outsera.razzies.domain.Movie;
 import br.com.outsera.razzies.domain.Producer;
@@ -22,9 +22,12 @@ import br.com.outsera.razzies.repository.ProducerRepository;
 /**
  * Importa o CSV configurado em {@code razzies.csv.path} na inicialização. Qualquer falha interrompe o startup
  * e a transação desfaz a importação parcial.
+ * <p>
+ * Roda em {@link SmartInitializingSingleton}, depois que todos os beans foram criados e antes de o servidor web
+ * aceitar requisições; um {@code ApplicationRunner} rodaria com a porta já aberta e a API responderia sem dados.
  */
 @Component
-public class MovieCsvLoader implements ApplicationRunner {
+public class MovieCsvLoader implements SmartInitializingSingleton {
 
 	private static final Logger log = LoggerFactory.getLogger(MovieCsvLoader.class);
 
@@ -32,18 +35,24 @@ public class MovieCsvLoader implements ApplicationRunner {
 	private final MovieCsvParser parser;
 	private final MovieRepository movieRepository;
 	private final ProducerRepository producerRepository;
+	private final TransactionTemplate transactionTemplate;
 
 	public MovieCsvLoader(CsvProperties properties, MovieCsvParser parser, MovieRepository movieRepository,
-			ProducerRepository producerRepository) {
+			ProducerRepository producerRepository, PlatformTransactionManager transactionManager) {
 		this.properties = properties;
 		this.parser = parser;
 		this.movieRepository = movieRepository;
 		this.producerRepository = producerRepository;
+		this.transactionTemplate = new TransactionTemplate(transactionManager);
 	}
 
+	// Transação explícita: este callback não passa pelo proxy de @Transactional.
 	@Override
-	@Transactional
-	public void run(ApplicationArguments args) {
+	public void afterSingletonsInstantiated() {
+		transactionTemplate.executeWithoutResult(status -> importMovies());
+	}
+
+	private void importMovies() {
 		List<MovieCsvRecord> records = parser.parse(properties.path());
 
 		// Um único Producer por nome normalizado, compartilhado entre os filmes; mantém a grafia da primeira ocorrência.

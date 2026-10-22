@@ -489,3 +489,49 @@ Execução do jar com `--spring.main.web-application-type=none`:
 
 - `./mvnw test`: sucesso.
 - Endpoint REST e testes de integração automatizados ficam para as próximas etapas.
+
+---
+
+## Interação 12 — Endpoint REST
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> vamos criar o endpoint REST usando a skill spring-web, mantenha controller simples, retornando o record que já criamos e respeitando o JSON do enunciado
+
+### Skills e ferramentas
+
+- `java-backend-skills:spring-web`: contrato HTTP observável (método, status, content type, formato), validado por requisições reais.
+
+### O que a IA fez
+
+- Criou `ProducerIntervalController` em `br.com.outsera.razzies.interval`: `GET /producers/award-intervals`, `produces = application/json`, retorna o record `ProducerIntervals` direto do serviço.
+- Validou com o jar rodando e `curl`:
+
+| Requisição | Resultado |
+|---|---|
+| `GET /producers/award-intervals` (CSV original) | 200, `application/json`, `{"min":[{"producer":"Joel Silver","interval":1,"previousWin":1990,"followingWin":1991}],"max":[{"producer":"Matthew Vaughn","interval":13,"previousWin":2002,"followingWin":2015}]}` |
+| `GET` com CSV de empates | 200, dois itens em `min` e dois em `max` |
+| `GET` com CSV sem intervalos | 200, `{"min":[],"max":[]}` |
+| `POST` no mesmo caminho | 405, `Allow: GET` |
+| `Accept: application/xml` | 406 |
+| Caminho inexistente | 404 |
+
+### Problema encontrado
+
+- A primeira chamada feita logo que a porta abriu devolveu `{"min":[],"max":[]}` com o CSV original.
+- O log mostra a ordem `Tomcat started` → `Started RazziesApplication` → `Imported 206 movies`: o `ApplicationRunner` roda depois que o servidor já aceita requisições e até depois do log "Started". É o risco apontado nas interações 5 e 7, agora observado.
+- Proposta: executar a importação antes de o servidor web iniciar (por exemplo, com `SmartInitializingSingleton` e `TransactionTemplate`). Aprovada e aplicada na sequência.
+
+### Correção: importação antes de o servidor aceitar requisições
+
+> pode aplicar a correção e depois fazer o commit
+
+- `MovieCsvLoader` passou de `ApplicationRunner` para `SmartInitializingSingleton`: `afterSingletonsInstantiated()` roda depois que todos os beans foram criados e antes de o Tomcat abrir a porta.
+- A transação passou a ser explícita com `TransactionTemplate`, porque esse callback não passa pelo proxy de `@Transactional`. Parser e loader continuam separados.
+- Validação com o jar:
+  - Ordem no log (`JpaTransactionManager` em DEBUG): `Creating new transaction` → `Imported 206 movies and 359 producers` → `Committing JPA transaction` → `Tomcat started` → `Started RazziesApplication`.
+  - Requisição disparada em laço até a porta abrir: a primeira resposta já traz Joel Silver 1 e Matthew Vaughn 13.
+  - CSV inválido: a aplicação termina com código 1, a mensagem `Invalid CSV record 2: winner 'true' must be 'yes' or empty` e a porta nunca chega a abrir.
+  - `./mvnw test`: sucesso.
