@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.csv.DuplicateHeaderMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.io.Resource;
@@ -53,6 +54,7 @@ public class MovieCsvParser {
 			.setHeader()
 			.setSkipHeaderRecord(true)
 			.setIgnoreHeaderCase(true)
+			.setDuplicateHeaderMode(DuplicateHeaderMode.DISALLOW)
 			.setIgnoreEmptyLines(true)
 			.setTrim(true)
 			.get();
@@ -61,7 +63,10 @@ public class MovieCsvParser {
 		if (!resource.exists()) {
 			throw new MovieCsvException("CSV file not found: " + resource.getDescription());
 		}
-		try (Reader reader = openSkippingBom(resource); CSVParser parser = FORMAT.parse(reader)) {
+		// O reader é dono do stream desde a abertura, então também é fechado se a leitura do BOM falhar.
+		try (BufferedReader reader = new BufferedReader(
+				new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8));
+				CSVParser parser = FORMAT.parse(skipBom(reader))) {
 			validateHeaders(parser, resource);
 			List<MovieCsvRecord> records = new ArrayList<>();
 			for (CSVRecord row : parser) {
@@ -74,8 +79,7 @@ public class MovieCsvParser {
 		}
 	}
 
-	private static Reader openSkippingBom(Resource resource) throws IOException {
-		BufferedReader reader = new BufferedReader(new InputStreamReader(resource.getInputStream(), StandardCharsets.UTF_8));
+	private static Reader skipBom(BufferedReader reader) throws IOException {
 		reader.mark(1);
 		if (reader.read() != BOM) {
 			reader.reset();

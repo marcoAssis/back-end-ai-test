@@ -593,3 +593,29 @@ Execução do jar com `--spring.main.web-application-type=none`:
 | Contagem repetida em `MovieCsvImportTests` | Aceito: duplicação mínima |
 
 - `./mvnw test`: 19 testes, 0 falhas.
+
+---
+
+## Interação 14 — Correção dos pendentes da revisão dos testes
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> sim (corrigir o stream que podia ficar aberto em `openSkippingBom` e cobrir o ramo `Could not read CSV file`)
+
+### O que a IA fez
+
+- `MovieCsvParser`: o `BufferedReader` passou a ser declarado no próprio `try-with-resources`, e o método `skipBom(BufferedReader)` só consome o BOM. Se a leitura do primeiro caractere falhar, o stream é fechado.
+- Novos CSVs em `src/test/resources/csv/invalid/` e casos em `MovieCsvStartupFailureTests`:
+  - `unclosed-quote.csv`: aspas sem fechamento, `Could not read CSV file ...: (startline 2) EOF reached before encapsulated token finished`.
+  - `duplicate-header.csv`: coluna `year` repetida no cabeçalho.
+
+### Problema encontrado
+
+- Com cabeçalho duplicado, a mensagem saía contraditória: `Invalid CSV record 1: expected 6 columns but found 6`. O `CSVFormat.DEFAULT` aceita nomes duplicados (`DuplicateHeaderMode.ALLOW_ALL`), o mapa de cabeçalho fica com 5 nomes para 6 valores e `isConsistent()` falha.
+- Correção: `setDuplicateHeaderMode(DuplicateHeaderMode.DISALLOW)`. A mensagem passou a ser `Could not read CSV file ...: The header contains a duplicate name: "year" ...`.
+
+### Validação
+
+- `./mvnw test`: 21 testes, 0 falhas.

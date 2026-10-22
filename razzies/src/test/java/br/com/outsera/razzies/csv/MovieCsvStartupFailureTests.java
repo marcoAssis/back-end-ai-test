@@ -22,6 +22,8 @@ class MovieCsvStartupFailureTests {
 			csv/invalid/missing-column.csv    | Invalid CSV record 2: expected 5 columns but found 4
 			csv/invalid/empty-title.csv       | Invalid CSV record 1: title is empty
 			csv/invalid/missing-header.csv    | is missing columns [studios]
+			csv/invalid/duplicate-header.csv  | The header contains a duplicate name
+			csv/invalid/unclosed-quote.csv    | EOF reached before encapsulated token finished
 			csv/invalid/does-not-exist.csv    | CSV file not found
 			""")
 	void failsStartupWithInvalidCsv(String csv, String expectedMessage) {
