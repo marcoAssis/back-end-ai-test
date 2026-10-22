@@ -535,3 +535,61 @@ Execução do jar com `--spring.main.web-application-type=none`:
   - Requisição disparada em laço até a porta abrir: a primeira resposta já traz Joel Silver 1 e Matthew Vaughn 13.
   - CSV inválido: a aplicação termina com código 1, a mensagem `Invalid CSV record 2: winner 'true' must be 'yes' or empty` e a porta nunca chega a abrir.
   - `./mvnw test`: sucesso.
+
+---
+
+## Interação 13 — Testes de integração
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> criar os testes de integração com a skill spring-testing
+
+### Skills e ferramentas
+
+- `java-backend-skills:spring-testing`: testar o mecanismo real na menor fronteira que o contém (contexto completo, importação real do CSV, H2 em memória, MockMvc).
+
+### O que a IA fez
+
+- Criou CSVs de cenário em `src/test/resources/csv/` (válidos) e `src/test/resources/csv/invalid/` (inválidos).
+- `interval/ProducerIntervalControllerTests` (`@SpringBootTest` + `@AutoConfigureMockMvc` + `MockMvcTester`): uma classe `@Nested` por CSV, cada uma com `@TestPropertySource` e contexto próprio. Compara o JSON inteiro com `isStrictlyEqualTo` (campos, valores e ordem).
+
+| Cenário | Verificação |
+|---|---|
+| CSV original | JSON exato: Joel Silver 1 (1990→1991) e Matthew Vaughn 13 (2002→2015); `POST` dá 405 com `Allow: GET`; `Accept: application/xml` dá 406 |
+| Empates | dois produtores em `min` e dois em `max` |
+| Vitórias no mesmo ano e linha duplicada | sem intervalo 0 |
+| 3 vitórias | só vitórias consecutivas |
+| Ninguém com 2 vitórias | `{"min":[],"max":[]}` |
+| Grafias com maiúsculas e espaços diferentes | agrupadas, retornando a primeira grafia com espaços normalizados |
+| BOM, CRLF, linha em branco, cabeçalho e `YES` em maiúsculas | arquivo lido normalmente |
+
+- `csv/MovieCsvImportTests`: confere no banco, via `JdbcTemplate`, 206 filmes, 42 vencedores, 359 produtores distintos e 472 vínculos com o CSV original; com o CSV de grafias, os nomes gravados (`Ann`, `Bob`, `Joel Silver`) e o filme sem produtor importado.
+- `csv/MovieCsvStartupFailureTests`: `@ParameterizedTest` que sobe a aplicação com `SpringApplication.run` e CSVs inválidos (winner inválido, ano zero, ano não numérico, coluna faltando na linha, título vazio, coluna faltando no cabeçalho, arquivo inexistente) e exige `MovieCsvException` com a mensagem esperada.
+
+### Validação
+
+- `./mvnw test`: 20 testes, 0 falhas (incluía o `contextLoads` gerado pelo Initializr, removido em seguida).
+- Teste de mutação numa cópia fora do repositório, para garantir que a suíte detecta regressões:
+  - Permitir anos repetidos no cálculo: falha `WinsInSameYear`.
+  - Filtro de empates com `<=` em vez de `==`: falham `OriginalCsv`, `TiedIntervals`, `MoreThanTwoWins` e `ProducerNameVariations`.
+
+### Revisão dos testes (`code-review`)
+
+> testes ficaram bons, remover o contextLoads. antes do commit, use a skill code-review e revise os testes, principalmente o isolamento dos contextos, o uso dos CSVs alternativos com problemas de recursos não fechados, identificar apenas problemas relevantes.. se não encontrar problemas críticos, atualize o AI_LOG e faça o commit dos testes.
+
+- Removido `RazziesApplicationTests.contextLoads`, redundante com a suíte nova.
+- A revisão não encontrou problema crítico. Ela confirmou que cada contexto em cache tem seu próprio H2 (`jdbc:h2:mem:<uuid>`), que cada `SpringApplication.run` com falha fecha o próprio contexto e o pool, e que o parser fecha reader e stream.
+
+| Achado | Decisão |
+|---|---|
+| Contexto de `SpringApplication.run` não seria fechado se uma regressão deixasse a aplicação subir | Corrigido: `try-with-resources` dentro do `assertThatThrownBy` |
+| Isolamento dos bancos depende do padrão `spring.datasource.generate-unique-name=true`; uma URL fixa futura misturaria os dados | Pendente: documentar no README |
+| `MovieCsvImportTests` usa `webEnvironment = NONE` e não reaproveita o contexto em cache dos testes do controller (9 contextos em vez de 7) | Aceito: custo de 2 inicializações extras |
+| Nenhum teste prova o rollback da importação parcial | Aceito: o banco não sobrevive à falha de startup; prova exigiria estrutura extra |
+| Sem CSV para o ramo `Could not read CSV file` (aspas malformadas, cabeçalho duplicado) | Pendente: candidato a cenário adicional |
+| `openSkippingBom` pode deixar o stream aberto se `read()` lançar `IOException` | Pendente: correção pequena no código principal |
+| Contagem repetida em `MovieCsvImportTests` | Aceito: duplicação mínima |
+
+- `./mvnw test`: 19 testes, 0 falhas.
