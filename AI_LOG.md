@@ -134,3 +134,51 @@ Descartada: `java-unit-testing`, porque o enunciado exige somente testes de inte
 
 - `.claude/` faz parte do repositório.
 - O CSV padrão fica em `src/main/resources`, carregado do classpath. O caminho será configurável por propriedade.
+
+---
+
+## Interação 4 — Modelagem de dados (Movie / Producer)
+
+**Data:** 2026-10-22
+
+### Prompt
+
+> Vamos definir a modelagem. Utilize a skill spring-data para avaliar duas alternativas: manter os produtores como texto na entidade Movie ou criar uma entidade Producer com relacionamento N. Considerando os requisitos da avaliação, qual abordagem você recomenda e por quê? Quero uma solução simples, com boa legibilidade e sem complexidade desnecessária.
+
+Em seguida, após aprovar o plano:
+
+> Vamos seguir com a modelagem N proposta, mantendo o relacionamento unidirecional e a estrutura simples. Tenha atenção ao equals/hashCode das entidades e à unicidade dos produtores. Pode implementar as entidades, repositories e a projeção ProducerWin, utilizando a skill spring-data. Depois execute a compilação para validar. Não avance para a importação do CSV ainda.
+
+### Skills e ferramentas
+
+- `java-backend-skills:spring-data`: análise a partir do resultado necessário (pares produtor/ano dos vencedores) até a consulta e o plano de fetch.
+- Modo de planejamento do Claude Code: plano revisado e aprovado pelo desenvolvedor antes da implementação.
+
+### Alternativas avaliadas
+
+| Critério | A: texto em `Movie` | B: `Producer` N:N |
+|---|---|---|
+| Entidades | 1 | 2 + tabela de junção |
+| Onde o split acontece | na consulta, a cada requisição | uma vez, na carga |
+| Consulta | vencedores + split + agrupamento em Java | 1 JPQL que já devolve os pares |
+| Banco representa o domínio | não | sim, com nome único |
+| Risco de erro de split em outro CSV | espalhado entre carga e serviço | isolado no parser da carga |
+
+### Decisões tomadas
+
+- Alternativa B, na forma mínima: `@ManyToMany` unidirecional `Movie` → `Producer`, sem cascade, fetch `LAZY` padrão.
+- `studios` permanece como texto, porque nenhum requisito usa estúdios.
+- Coluna `release_year` em vez de `year`, que é palavra reservada no H2.
+- `Producer`: `equals`/`hashCode` pela chave natural `name`, imutável e sem setter; comparação via `getName()` para funcionar com proxies do Hibernate. O construtor rejeita nome nulo ou em branco.
+- Unicidade de produtor garantida no banco pela constraint `uk_producer_name`; a deduplicação na carga fica para a etapa do carregador.
+- `Movie`: sem chave natural, então `equals` pelo `id` gerado (não nulo) e `hashCode` constante da classe.
+- Entidades sem setters; `getProducers()` devolve visão não modificável.
+- Consulta `MovieRepository.findProducerWins()` em JPQL com projeção no record `ProducerWin(producer, year)`, ordenada por produtor e ano.
+- Pacotes: `br.com.outsera.razzies.domain` (entidades) e `br.com.outsera.razzies.repository` (repositórios e projeção).
+
+### O que a IA fez
+
+- Criou `Movie`, `Producer`, `MovieRepository`, `ProducerRepository` e `ProducerWin`.
+- Executou `./mvnw -q compile`: sucesso.
+- Executou `./mvnw test` (somente o `contextLoads` do Initializr) com `show-sql`: contexto sobe, a JPQL é validada no startup e o DDL gerado confere com o modelo (tabelas `movie`, `producer`, `movie_producer`, constraint `uk_producer_name`).
+- Não avançou para a importação do CSV, conforme pedido.
