@@ -91,6 +91,32 @@ class ProducerIntervalControllerTests {
 	}
 
 	@Nested
+	@TestPropertySource(properties = "razzies.csv.path=classpath:csv/same-producer-ties.csv")
+	class TiedIntervalsOfSameProducer {
+
+		@Autowired
+		MockMvcTester mvc;
+
+		@Test
+		void returnsEveryTiedIntervalOfSameProducerOrderedByProducerAndYear() {
+			assertIntervals(mvc, """
+					{
+					  "min": [
+					    { "producer": "Producer M", "interval": 1, "previousWin": 2000, "followingWin": 2001 },
+					    { "producer": "Producer M", "interval": 1, "previousWin": 2001, "followingWin": 2002 },
+					    { "producer": "Producer N", "interval": 1, "previousWin": 1990, "followingWin": 1991 }
+					  ],
+					  "max": [
+					    { "producer": "Producer M", "interval": 10, "previousWin": 2002, "followingWin": 2012 },
+					    { "producer": "Producer M", "interval": 10, "previousWin": 2012, "followingWin": 2022 }
+					  ]
+					}
+					""");
+		}
+
+	}
+
+	@Nested
 	@TestPropertySource(properties = "razzies.csv.path=classpath:csv/same-year.csv")
 	class WinsInSameYear {
 

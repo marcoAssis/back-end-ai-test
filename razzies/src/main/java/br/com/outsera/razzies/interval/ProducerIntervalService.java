@@ -2,10 +2,6 @@ package br.com.outsera.razzies.interval;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,41 +21,48 @@ public class ProducerIntervalService {
 		this.movieRepository = movieRepository;
 	}
 
+	// Passagem única: a consulta já agrupa as vitórias por produtor em ordem de ano, então cada vitória só se
+	// compara com a anterior. Empates entram na ordem da consulta, que é conferida no próprio laço.
 	@Transactional(readOnly = true)
 	public ProducerIntervals findMinAndMaxIntervals() {
-		List<ProducerInterval> intervals = consecutiveIntervals(movieRepository.findProducerWins());
-		if (intervals.isEmpty()) {
-			return new ProducerIntervals(List.of(), List.of());
-		}
-		int min = intervals.stream().mapToInt(ProducerInterval::interval).min().getAsInt();
-		int max = intervals.stream().mapToInt(ProducerInterval::interval).max().getAsInt();
-		return new ProducerIntervals(withInterval(intervals, min), withInterval(intervals, max));
-	}
+		List<ProducerInterval> min = new ArrayList<>();
+		List<ProducerInterval> max = new ArrayList<>();
+		String previousProducer = null;
+		int previousYear = 0;
 
-	// Resultado ordenado por produtor e ano da vitória anterior, porque o TreeMap e o TreeSet já iteram nessa ordem.
-	private static List<ProducerInterval> consecutiveIntervals(List<ProducerWin> wins) {
-		// Anos distintos por produtor: vitórias no mesmo ano não geram intervalo zero.
-		Map<String, TreeSet<Integer>> yearsByProducer = wins.stream()
-				.collect(Collectors.groupingBy(ProducerWin::producer, TreeMap::new,
-						Collectors.mapping(ProducerWin::year, Collectors.toCollection(TreeSet::new))));
-
-		List<ProducerInterval> intervals = new ArrayList<>();
-		yearsByProducer.forEach((producer, years) -> {
-			Integer previous = null;
-			for (int year : years) {
-				if (previous != null) {
-					intervals.add(new ProducerInterval(producer, year - previous, previous, year));
+		for (ProducerWin win : movieRepository.findProducerWinsOrderedByProducerAndYear()) {
+			if (win.producer().equals(previousProducer)) {
+				if (win.year() < previousYear) {
+					throw new IllegalStateException("Producer wins must be ordered by year");
 				}
-				previous = year;
+			} else if (previousProducer != null && win.producer().compareTo(previousProducer) < 0) {
+				// Um produtor que reaparece depois de outro teria vitórias fora do grupo e perderia intervalos.
+				throw new IllegalStateException("Producer wins must be grouped by producer");
 			}
-		});
-		return intervals;
-	}
 
-	private static List<ProducerInterval> withInterval(List<ProducerInterval> intervals, int interval) {
-		return intervals.stream()
-				.filter(candidate -> candidate.interval() == interval)
-				.toList();
+			// Vitórias no mesmo ano não geram intervalo zero.
+			if (win.producer().equals(previousProducer) && win.year() > previousYear) {
+				ProducerInterval interval = new ProducerInterval(win.producer(), win.year() - previousYear,
+						previousYear, win.year());
+
+				if (min.isEmpty() || interval.interval() < min.getFirst().interval()) {
+					min.clear();
+				}
+				if (min.isEmpty() || interval.interval() == min.getFirst().interval()) {
+					min.add(interval);
+				}
+
+				if (max.isEmpty() || interval.interval() > max.getFirst().interval()) {
+					max.clear();
+				}
+				if (max.isEmpty() || interval.interval() == max.getFirst().interval()) {
+					max.add(interval);
+				}
+			}
+			previousProducer = win.producer();
+			previousYear = win.year();
+		}
+		return new ProducerIntervals(min, max);
 	}
 
 }

@@ -695,3 +695,46 @@ Execução do jar com `--spring.main.web-application-type=none`:
 - Adicionou `.~lock.*#` ao `.gitignore` (arquivo de trava do LibreOffice com o README aberto).
 - Conferiu com `git ls-remote` que o repositório remoto existia e estava vazio e adicionou o remoto `origin`.
 - O push não pôde ser feito pela IA: o ambiente não tem credenciais do GitHub (sem `gh`, sem chave SSH cadastrada, HTTPS pedindo usuário). O desenvolvedor executou `git push -u origin main`.
+
+---
+
+## Interação 18 — Cálculo dos intervalos em passagem única
+
+**Data:** 2026-10-27
+
+### Prompt
+
+> revise o ProducerIntervalService utilizando a skill java-design e avalie se conseguimos fazer o cálculo em uma única passagem, aproveitando a ordenação que já vem da consulta JPQL
+
+> vamos seguir com a otimização, aproveitando a ordenação da consulta. não gostei muito do IntervalExtremes com o parâmetro direction. Deixe as comparações de mínimo e máximo explícitas, sem essa abstração. pode implementar mantendo o código simples e adicionar um teste para múltiplos intervalos empatados do mesmo produtor. execute os testes e compare o resultado com a implementação anterior. sem commit.
+
+> Confira se todos os testes anteriores continuam sendo executados. Depois rode clean verify e utilize a skill code-review para uma revisão pontual da otimização, verificando possíveis problemas de lógica ou regressões.
+
+> apenas melhorar a validação da ordenação, verificando também se o produtor voltou na sequência. Mantenha a passagem única, sem novas estruturas ou loops. Não precisa alterar a JPQL nem adicionar DISTINCT. Confira se os testes de integração existentes já cobrem a ordenação com CSV embaralhado. Não quero testes unitários com mocks. Atualize o AI_LOG com essa otimização, sem modificar as entradas antigas. Depois rode clean verify e me apresente o resultado. Ainda sem commit.
+
+### Skills e ferramentas
+
+- `java-backend-skills:java-design`: a ordem "produtor e ano" era definida em dois lugares, no `ORDER BY` da consulta e no `TreeMap`/`TreeSet` do serviço, e o `ORDER BY` não tinha efeito. A consulta passou a ser a única responsável por essa ordem.
+- `code-review` (nível medium): revisão da otimização antes do ajuste final.
+
+### O que a IA fez
+
+- `ProducerIntervalService.findMinAndMaxIntervals()` agora calcula tudo num único laço sobre as vitórias da consulta. Cada vitória só é comparada com a anterior do mesmo produtor, e as listas de menor e maior intervalo, com empates, são montadas durante o laço. Saíram o `TreeMap`/`TreeSet`, a lista com todos os intervalos e as passagens extras de min/max/filtro.
+- As comparações de mínimo e máximo ficaram explícitas, em blocos separados. Uma classe `IntervalExtremes` com parâmetro de direção foi proposta e rejeitada pelo desenvolvedor.
+- `MovieRepository.findProducerWins()` foi renomeado para `findProducerWinsOrderedByProducerAndYear()`, com javadoc dizendo que o cálculo depende dessa ordem. A JPQL não mudou.
+- O laço confere a ordem da consulta e lança `IllegalStateException` em dois casos: ano voltando dentro do mesmo produtor, e produtor reaparecendo depois de outro (o nome diminui em relação ao anterior, conferido com `String.compareTo`). Isso usa só as variáveis do laço, sem estrutura nova.
+- Teste novo `TiedIntervalsOfSameProducer` com `csv/same-producer-ties.csv`: o mesmo produtor tem dois intervalos empatados no mínimo e dois no máximo, e outro produtor também empata no mínimo. As linhas do CSV estão embaralhadas.
+
+### Code review
+
+- Aceito: a primeira verificação de ordem não detectava um produtor reaparecendo depois de outro, o que faria um intervalo sumir sem erro. Corrigido com a comparação de nomes.
+- Não aplicado, por decisão do desenvolvedor: `select distinct` e qualquer mudança na JPQL, e testes unitários com mock.
+- Mantido: a duplicação entre os blocos de mínimo e máximo é intencional, e `IllegalStateException` (HTTP 500) é a resposta adequada a uma quebra do contrato da consulta.
+- Ressalva: a verificação de produtor supõe que o banco ordena os nomes como `String.compareTo`. Isso vale no H2 do projeto e foi confirmado pelo CSV original (359 produtores). Com outra collation, a verificação poderia acusar um erro que não existe.
+
+### Validação
+
+- Antes de trocar a implementação, o teste novo foi rodado com o código antigo: tudo verde. Depois da troca, os mesmos casos passaram, e o `diff` entre as listas de casos do surefire saiu vazio. Como os testes conferem o JSON exato, a resposta continua igual à anterior.
+- Cobertura de ordenação com CSV embaralhado já existente nos testes de integração, que usam a consulta real no H2: `same-producer-ties.csv` (produtores intercalados, anos fora de ordem), `three-wins.csv`, `normalized-names.csv` e o `Movielist.csv` original (ordenado por ano, produtores intercalados). As exceções de ordem não são alcançáveis pelo endpoint sem alterar a JPQL, então não têm teste específico.
+- Todos os métodos de teste do commit anterior continuam sendo executados.
+- `./mvnw clean verify`: 24 testes, 0 falhas, BUILD SUCCESS. Sem commit.
